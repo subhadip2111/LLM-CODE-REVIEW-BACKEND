@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
@@ -14,7 +12,7 @@ const EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', '.vscode'];
 
 app.use(express.json());
 
-
+// Recursively collects files of interest
 async function collectFiles(dir, baseDir = dir) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   let files = [];
@@ -26,14 +24,17 @@ async function collectFiles(dir, baseDir = dir) {
       files = files.concat(await collectFiles(fullPath, baseDir));
     } else {
       const ext = path.extname(entry.name);
-      if ([".js", ".ts", ".jsx", ".tsx", ".json"].includes(ext) || entry.name.startsWith(".env")) {
+      const validExts = ['.js', '.ts', '.jsx', '.tsx', '.json'];
+      if (validExts.includes(ext) || entry.name.startsWith('.env')) {
         files.push(path.relative(baseDir, fullPath));
       }
     }
   }
+
   return files;
 }
 
+// Locates package.json (project root)
 async function locatePackageJson(dir) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
 
@@ -81,18 +82,26 @@ function assessReadability(code) {
   return { totalLines: lines.length, longLines: longLines.length };
 }
 
-// Detect .env files
 async function detectEnvFiles(baseDir) {
   const allFiles = await collectFiles(baseDir);
   return allFiles.filter(f => path.basename(f).startsWith('.env'));
 }
 
-// Analyzes a sample of code files
+// Enhanced code sampling
 async function scanCodeFiles(baseDir, files) {
-  const results = { identifiers: [], readability: { totalLines: 0, longLines: 0 }, analyzedFiles: [] };
-  const codeFiles = files.filter(f => ['.js', '.ts', '.jsx', '.tsx'].includes(path.extname(f))).slice(0, 5);
+  const results = {
+    identifiers: [],
+    readability: { totalLines: 0, longLines: 0 },
+    analyzedFiles: [],
+  };
 
-  for (const file of codeFiles) {
+  const codeExtensions = ['.js', '.ts', '.jsx', '.tsx'];
+  const codeFiles = files.filter(f => codeExtensions.includes(path.extname(f)));
+
+  // Sort by shortest path (shallow files) and take more samples
+  const sampled = codeFiles.sort((a, b) => a.split('/').length - b.split('/').length).slice(0, 20);
+
+  for (const file of sampled) {
     try {
       const fullPath = path.join(baseDir, file);
       const content = await fs.readFile(fullPath, 'utf-8');
@@ -101,8 +110,11 @@ async function scanCodeFiles(baseDir, files) {
       const readability = assessReadability(content);
       results.readability.totalLines += readability.totalLines;
       results.readability.longLines += readability.longLines;
-    } catch {}
+    } catch {
+      continue;
+    }
   }
+
   return results;
 }
 
@@ -162,9 +174,9 @@ function generateQualityReport({ description, deps, identifiers, readability, en
   };
 }
 
-
 app.post('/upload', upload.single('files'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
   const { description } = req.body;
 
   try {
@@ -200,6 +212,4 @@ app.post('/upload', upload.single('files'), async (req, res) => {
   }
 });
 
-// ----------------- START SERVER -----------------
-app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
-
+app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));
